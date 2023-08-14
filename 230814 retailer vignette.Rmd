@@ -1,0 +1,386 @@
+---
+title: "Untitled"
+output: html_document
+date: "2023-08-14"
+---
+# read data
+
+
+```{r }
+pop_data  <-
+  data.table::fread(
+    "popdatacounty1969_2022.csv"
+  )
+
+
+```
+
+
+```{r }
+pop_data  <-
+  data.table::fread(
+    "popdatacounty1969_2022.csv"
+  )
+
+```
+
+```{r }
+retail_data_completegeo_fips_expsumLU <- readxl::read_excel(
+  "230809_retailGEOID_summarycount_sample.xlsx"
+)# %>% 
+
+```
+
+```{r }
+retailnames_LU <- readxl::read_excel(
+  "230809_retailnames_4.xlsx"
+)# %>% 
+
+```
+
+
+```{r }
+ retail_data_namesLU <-   retail_data_completegeo_fips %>% 
+  mutate(
+    state = substr(GEOID_char , 1,2 ), 
+    retailername = 
+      toupper(
+      str_squish(
+        gsub(
+        " inc| llc| ltd", "",
+      gsub(
+         "[^A-Za-z ]", "",`Store Name`, perl = TRUE, ignore.case = TRUE
+      ), perl = TRUE, ignore.case = TRUE, 
+      )
+      )
+      )
+    ) %>% 
+  left_join(
+    retailnames_LU%>% 
+      select(
+        retailername, Likelyname
+      ) %>% 
+      mutate(
+        Likelyname = coalesce( Likelyname, retailername)
+      ), 
+    by = c("retailername")
+  ) %>% 
+  select(
+    `Store Name`, `Record ID`  , Likelyname, retailername
+  ) %>% 
+  distinct()
+
+retail_data_completegeo_fips_exp_rename <- retail_data_completegeo_fips_exp %>% 
+  left_join(
+    retail_data_namesLU %>% 
+      filter(
+        !is.na(`Store Name`)
+      ), 
+    by = c("Record ID", "Store Name")
+  )  
+
+```
+
+
+```{r }
+whichcsv <- tibble(
+  files = 
+    list.files( getwd(), pattern ="csv$", full.names =  TRUE, recursive = FALSE)
+)
+tibble(
+  num = 1:517
+) %>% 
+  filter(
+    !num %in% c(
+      (
+        whichcsv %>% 
+  mutate(num = as.numeric(gsub(".*file |\\.csv", "", files)))
+      )$num
+      
+      
+    )
+  )
+
+readallcsv <- function(x,xpattern = "feather$", xfilter_filename = "file"){
+  
+
+ rbindlist(
+  (
+    tibble(
+  files = 
+    list.files(x, pattern =xpattern, full.names =  TRUE, recursive = FALSE)
+) %>% 
+  filter(
+    grepl(xfilter_filename, files, ignore.case = TRUE)
+  ) %>% 
+  mutate(
+    GEOID = purrr::map(files,
+                       ~data.table::fread(.x))
+  ) 
+  )$GEOID, 
+fill = TRUE
+) 
+}
+```
+
+```{r }
+retail_data_namesLU <-  readallcsv(x = ,xpattern = "csv$")
+```
+
+## read name lu
+
+
+```{r  }
+
+ <- readallcsv(x = getwd(),xpattern = "csv$")
+```
+## summarise concentration function
+
+### function 1
+```{r }
+calculate_concentration_bycounty  <- function(x, ref_df, ref_df_quantities){
+  
+  # x <- retail_data_completegeo_fips_exp
+  # ref_df <- pop_data
+  # ref_df_quantities <-retail_data_completegeo_fips_expsum 
+  x_refdf <- x%>% 
+    left_join(
+      ref_df, 
+      by = c("ground_year" =  "year", "GEOID")
+    ) %>% 
+    left_join(
+      ref_df_quantities %>% 
+        select(
+          `Store Type`, Size
+        ) %>% 
+        filter(
+          !is.na(Size)
+        ) %>% 
+        distinct(), 
+      by = c("Store Type")
+    )
+  x_refdf_concentration <- x_refdf%>% 
+    group_by(
+      ground_year, GEOID
+    ) %>% 
+    mutate(
+      totalsize = sum(Size, na.rm = TRUE)
+    ) %>% 
+    ungroup() %>% 
+    mutate(
+      unitsize = value/totalsize
+    ) %>% 
+    mutate(
+      value_concen = unitsize * Size
+    ) 
+  x_refdf_concentration
+}
+```
+
+```{r }
+retail_concen <- retail_data_completegeo_fips_exp_rename %>% calculate_concentration_bycounty(x=., ref_df= pop_data, ref_df_quantities = retail_data_completegeo_fips_expsumLU) %>% 
+  filter(
+    ground_year >=  (pop_data$year %>% min())
+  )
+ 
+```
+
+### function 2
+```{r }
+calculate_concentration_county_peryear  <- function(x, col_unitcol, col_funcyear, col_concenval, col_groupby, col_firmname){
+  # x = retail_concen
+  # col_unitcol = retail_concen$GEOID
+  # col_funcyear = retail_concen$ground_year
+  # col_concenval = retail_concen$value_concen
+  # col_groupby = retail_concen$Description
+  # col_firmname = retail_concen$Likelyname
+  
+   
+ xdf <-   x %>% 
+    cbind(
+      tibble(
+        calcfunc_geoid = col_unitcol
+      )
+    ) %>% 
+    cbind(
+      tibble(
+        calcfuncyear = col_funcyear
+      )
+    ) %>% 
+    cbind(
+      tibble(
+        calcfuncconcenval = col_concenval
+      )
+    )%>% 
+    cbind(
+      tibble(
+        calcfunccolgroupby = col_groupby
+      )
+    ) %>%
+ cbind(
+      tibble(
+        calcfunccolfirmname = col_firmname
+      )
+    ) %>% 
+   filter(!is.na(calcfuncconcenval))
+ countyconcen <- xdf %>% 
+   group_by(
+     calcfunc_geoid, calcfuncyear, calcfunccolgroupby
+   ) %>% 
+   mutate(
+     county_concen_value_total = sum(calcfuncconcenval, na.rm =TRUE )
+   ) %>% 
+   ungroup() %>% 
+   group_by(
+     calcfunc_geoid, calcfuncyear, calcfunccolgroupby
+   ) %>% 
+   mutate(
+     county_concen_value_total = sum(calcfuncconcenval, na.rm =TRUE )
+   ) %>% 
+   ungroup() %>% 
+   mutate(
+     county_concen_value = calcfuncconcenval/county_concen_value_total
+   ) 
+ 
+xdf_firmconcentration <-  countyconcen%>% 
+   group_by(
+     calcfunc_geoid, calcfuncyear, calcfunccolgroupby, calcfunccolfirmname, county_concen_value_total
+   ) %>% 
+   summarise(
+     county_concen_value_firmtotal= sum(county_concen_value, na.rm =TRUE )
+   ) %>% 
+   ungroup()%>% 
+   group_by(
+     calcfunc_geoid, calcfuncyear, calcfunccolgroupby
+   ) %>%  
+  arrange(
+    -county_concen_value_firmtotal
+  ) %>% 
+  slice(1:4) %>% 
+  ungroup() %>% 
+  mutate(
+    calcfunccolfirmname_value = paste0( calcfunccolfirmname, " (",round(county_concen_value_firmtotal, 2), ")" )
+  ) %>% 
+  group_by(
+     calcfunc_geoid, calcfuncyear, calcfunccolgroupby, county_concen_value_total
+   ) %>% 
+  summarise(
+    county_hhi = sum(county_concen_value_firmtotal), 
+    hhi_firm4 = paste(
+      calcfunccolfirmname %>% unique(), 
+      collapse = ", "
+    ), 
+    hhi_firm4value= paste(
+      calcfunccolfirmname_value %>% unique(), 
+      collapse = ", "
+    ) 
+  ) %>% 
+  ungroup() #%>% 
+  # mutate(
+  #   county_hhi = county_top4total/county_concen_value_total
+  # )
+
+
+xdf_out <-  countyconcen %>% 
+     left_join(
+       xdf_firmconcentration, 
+       by = c("calcfunc_geoid"  , "calcfuncyear", "calcfunccolgroupby", "county_concen_value_total")
+     ) %>% 
+     select(
+       -starts_with("calcfunc")
+     )
+}
+```
+
+### add concentrations to retail and packer data
+
+
+
+```{r }
+retail_concen_county <- retail_concen %>% 
+  calculate_concentration_county_peryear(x= ., col_unitcol = .$GEOID, col_funcyear = .$ground_year, col_concenval= .$value_concen, col_groupby = .$Description, col_firmname =.$Likelyname ) #%>% 
+  # mutate(
+  #   popup = paste0(
+  #     Likelyname, " ", round(value,2), " ", round(value_concen, 2)
+  #   ), 
+  #   popup_county = 
+  # ) 
+
+calculate_concentration_county_peryear  <- function(x, col_unitcol, col_funcyear, col_concenval, col_groupby, col_firmname)
+```
+
+## leaflet
+```{r }
+require(leaflet)
+
+
+
+retail_concen_county_poly <- shapes2 %>% # us_counties(resolution = c("high")) %>%
+    # mutate(GEOID = as.numeric(geoid)) %>%
+    st_transform("+proj=longlat +datum=WGS84") %>%
+    # st_simplify(TRUE, dTolerance = 10000)  %>%
+    st_cast("MULTIPOLYGON")%>% 
+    # mutate(
+    #   geosub = substr(GEOID, 1,2)
+    # )%>% 
+  left_join(
+    retail_concen_county %>% 
+      group_by(
+        GEOID, ground_year , county_hhi#, popup 
+      ) %>% 
+      slice(1) %>% 
+      ungroup() %>% 
+      select(
+        GEOID, ground_year , county_hhi, hhi_firm4value, popup 
+      ), 
+    by = c("GEOID")
+  ) 
+  pal <- colorNumeric(palette = "viridis",  domain = retail_concen_county_poly$county_hhi  )
+
+ leaflet() %>%
+    addProviderTiles(
+      provider = "CartoDB.Positron"
+    ) %>% 
+    # basemap_magick(map_service = "carto", map_type = "light") %>% 
+  # addTiles() %>%  # Add default OpenStreetMap map tiles
+  # addCircleMarkers(
+  #   data = retail_concen_county,
+  #   lng= ~long,
+  #   lat= ~lat,
+  #   popup= ~ popup,
+  #    radius = ~county_concen_value
+  #   )  %>%
+
+   
+        addPolygons(
+      data = retail_concen_county_poly,
+      # stroke = FALSE,
+      fillOpacity =.7,
+            stroke = TRUE,
+      weight = 1,
+      fill = ~pal(county_hhi),
+      popup = ~popup,
+      color =~pal(county_hhi)#,
+      # group = "Percent_Change_Incomelm_BeforeExpo_vs_After" ,
+      # options = leafletOptions(pane = "Percent_Change_Incomelm_BeforeExpo_vs_After")
+    )%>%
+  addTimeslider(
+    data = retail_concen_county_poly,
+             options = timesliderOptions(
+               position = "topright",
+               timeAttribute = "ground_year",
+               range = TRUE)
+    ) 
+retail_concen_county
+```
+
+
+# git code 
+```{r }
+# https://rogerdudler.github.io/git-guide/
+# https://rfortherestofus.com/2021/02/how-to-use-git-github-with-r/
+# git add *
+# git commit -m "committed 230723"
+# git push origin 
+
+```
